@@ -9,10 +9,31 @@ from downloader import get_local_video_duration, _FFMPEG
 
 def _extract_clip(source: Path, start: float, duration: float, output: Path):
     """
-    Extract a clip from a video file with accurate seeking.
-    Uses -ss after -i for frame-accurate results (works with AV1/VP9/etc).
-    Re-encodes to H.264 so the compose step is fast.
+    Extract a clip from a video. Uses fast seek (-ss before -i) first,
+    falls back to accurate seek (-ss after -i) if that produces no output.
     """
+    # Fast seek: -ss before -i (instant, works for most formats)
+    cmd = [
+        _FFMPEG, "-y",
+        "-ss", str(start),
+        "-i", str(source),
+        "-t", str(duration),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-r", str(FPS),
+        str(output),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+    # Check if it actually produced a valid file
+    if result.returncode == 0 and output.exists() and output.stat().st_size > 10000:
+        return
+
+    # Fast seek failed — use accurate seek (slower but guaranteed)
+    output.unlink(missing_ok=True)
     cmd = [
         _FFMPEG, "-y",
         "-i", str(source),
@@ -26,9 +47,9 @@ def _extract_clip(source: Path, start: float, duration: float, output: Path):
         "-r", str(FPS),
         str(output),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
-        raise RuntimeError(f"Clip extraction failed:\n{result.stderr[-1000:]}")
+        raise RuntimeError(f"Clip extraction failed:\n{result.stderr[-500:]}")
 
 
 def compose_short(
@@ -41,28 +62,27 @@ def compose_short(
 ) -> Path:
     """
     Create a vertical short video:
-    - Top half: source video clip (start->end), cropped+scaled to fit
-    - Bottom half: random segment from gameplay video (same duration)
-    - Audio: source video audio
+    - Top half: source clip, cropped+scaled
+    - Bottom half: gameplay clip
+    - Audio: source video
     """
     clip_duration = end - start
-    half_height = OUTPUT_HEIGHT // 2  # 960px each
+    half_height = OUTPUT_HEIGHT // 2
 
-    # Pick a random start point in the gameplay video
     gameplay_duration = get_local_video_duration(gameplay_video)
     max_gp_start = max(0, gameplay_duration - clip_duration - 10)
     gp_start = random.uniform(0, max_gp_start) if max_gp_start > 0 else 0
 
     output_path = OUTPUT_DIR / f"{output_name}.mp4"
 
-    # Step 1: Extract clips to H.264 first (handles AV1/VP9 seeking issues)
+    # Step 1: Extract both clips to H.264 (handles AV1/VP9 + seeking)
     src_clip = TEMP_DIR / f"{output_name}_src.mp4"
     gp_clip = TEMP_DIR / f"{output_name}_gp.mp4"
 
     _extract_clip(source_video, start, clip_duration, src_clip)
     _extract_clip(gameplay_video, gp_start, clip_duration, gp_clip)
 
-    # Step 2: Stack the two H.264 clips vertically (fast, no decoding issues)
+    # Step 2: Stack vertically
     video_filter = (
         f"[0:v]scale={OUTPUT_WIDTH}:{half_height}:force_original_aspect_ratio=increase,"
         f"crop={OUTPUT_WIDTH}:{half_height},setsar=1[top];"
@@ -88,7 +108,6 @@ def compose_short(
         "-i", str(src_clip),
         "-i", str(gp_clip),
     ]
-
     if voiceover_audio:
         cmd += ["-i", str(voiceover_audio)]
 
@@ -105,13 +124,13 @@ def compose_short(
         str(output_path),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
     # Clean up temp clips
     src_clip.unlink(missing_ok=True)
     gp_clip.unlink(missing_ok=True)
 
     if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed:\n{result.stderr[-1000:]}")
+        raise RuntimeError(f"FFmpeg failed:\n{result.stderr[-500:]}")
 
     return output_path

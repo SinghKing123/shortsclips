@@ -21,9 +21,12 @@ _PROXY = os.environ.get("PROXY", "")
 
 def _ytdlp(*args: str) -> subprocess.CompletedProcess:
     """Run yt-dlp with PO token support and optional proxy."""
-    cmd = [sys.executable, "-m", "yt_dlp"]
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--js-runtimes", "node",
+        "--remote-components", "ejs:github",
+    ]
 
-    # Proxy support (residential proxy to bypass datacenter IP blocks)
     if _PROXY:
         cmd += ["--proxy", _PROXY]
 
