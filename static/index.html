@@ -206,30 +206,6 @@
             color: #fff;
         }
 
-        /* Cookie banner */
-        .cookie-banner {
-            background: #1a1a2e;
-            border: 1px solid #f87171;
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        .cookie-banner.visible { display: block; }
-        .cookie-banner.ok { border-color: #4ade80; }
-        .cookie-banner p {
-            font-size: 13px;
-            color: #a0a0c0;
-            margin-bottom: 10px;
-            line-height: 1.5;
-        }
-        .cookie-banner .status {
-            font-weight: 600;
-            font-size: 13px;
-            margin-bottom: 8px;
-        }
-        .cookie-banner .status.bad { color: #f87171; }
-        .cookie-banner .status.good { color: #4ade80; }
         .upload-btn {
             display: inline-block;
             padding: 8px 16px;
@@ -251,17 +227,6 @@
     </div>
 
     <div class="container">
-        <div class="cookie-banner" id="cookie-banner">
-            <div class="status bad" id="cookie-status">YouTube cookies needed</div>
-            <p>YouTube blocks requests from servers. Upload your cookies once to fix this.
-               Use the <strong>Get cookies.txt LOCALLY</strong> browser extension, go to youtube.com,
-               export cookies, then upload the file here.</p>
-            <label class="upload-btn">
-                Upload cookies.txt
-                <input type="file" accept=".txt" style="display:none" onchange="uploadCookies(this)">
-            </label>
-        </div>
-
         <label>YouTube URL</label>
         <input type="text" id="url" placeholder="https://youtube.com/watch?v=..." autocapitalize="off" autocorrect="off">
 
@@ -416,42 +381,6 @@
             // Scroll to results
             document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
         }
-        // Check cookie status on load
-        fetch('/api/cookies')
-            .then(r => r.json())
-            .then(data => {
-                const banner = document.getElementById('cookie-banner');
-                const status = document.getElementById('cookie-status');
-                if (data.has_cookies) {
-                    banner.classList.add('visible', 'ok');
-                    banner.classList.remove('visible');
-                    status.textContent = '';
-                } else {
-                    banner.classList.add('visible');
-                }
-            });
-
-        function uploadCookies(input) {
-            const file = input.files[0];
-            if (!file) return;
-            const form = new FormData();
-            form.append('file', file);
-            fetch('/api/cookies', { method: 'POST', body: form })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.ok) {
-                        const banner = document.getElementById('cookie-banner');
-                        const status = document.getElementById('cookie-status');
-                        banner.classList.add('ok');
-                        status.className = 'status good';
-                        status.textContent = 'Cookies uploaded!';
-                        setTimeout(() => banner.classList.remove('visible'), 2000);
-                    } else {
-                        alert('Upload failed: ' + data.error);
-                    }
-                });
-        }
-
         // Register PWA service worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js');

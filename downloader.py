@@ -1,10 +1,12 @@
 """Download YouTube videos and extract heatmap (most-replayed) data."""
 
 import json
+import os
 import subprocess
 import sys
 import re
 import shutil
+import urllib.request
 from pathlib import Path
 from config import DOWNLOADS_DIR, GAMEPLAY_DIR, BASE_DIR
 
@@ -12,20 +14,19 @@ from config import DOWNLOADS_DIR, GAMEPLAY_DIR, BASE_DIR
 _FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 _FFPROBE = shutil.which("ffprobe") or "ffprobe"
 
-# Cookie file for YouTube authentication (needed on cloud servers)
-COOKIES_FILE = BASE_DIR / "cookies.txt"
+# Optional proxy for YouTube downloads (set PROXY env var if needed)
+# e.g. PROXY=socks5://user:pass@host:port
+_PROXY = os.environ.get("PROXY", "")
 
 
 def _ytdlp(*args: str) -> subprocess.CompletedProcess:
-    """Run yt-dlp via `py -m yt_dlp` so it works even when not on PATH."""
-    cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "--js-runtimes", "node",
-        "--remote-components", "ejs:github",
-    ]
-    # Use cookies if available
-    if COOKIES_FILE.exists():
-        cmd += ["--cookies", str(COOKIES_FILE)]
+    """Run yt-dlp with PO token support and optional proxy."""
+    cmd = [sys.executable, "-m", "yt_dlp"]
+
+    # Proxy support (residential proxy to bypass datacenter IP blocks)
+    if _PROXY:
+        cmd += ["--proxy", _PROXY]
+
     cmd += list(args)
     return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -49,12 +50,11 @@ def download_video(url: str, output_dir: Path = DOWNLOADS_DIR, max_height: int =
     )
 
     if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed:\n{result.stderr}")
+        raise RuntimeError(f"Download failed:\n{result.stderr}")
 
     if cached.exists():
         return cached
 
-    # Check for other extensions that yt-dlp might have saved
     for f in output_dir.iterdir():
         if f.stem == video_id:
             return f
@@ -76,18 +76,43 @@ def extract_video_id(url: str) -> str:
 
 
 def get_video_duration(url: str) -> float:
-    """Get video duration in seconds using yt-dlp."""
-    result = _ytdlp("--print", "duration", "--no-playlist", url)
-    if result.returncode != 0:
-        raise RuntimeError(f"Could not get duration:\n{result.stderr}")
-    return float(result.stdout.strip())
+    """Get video duration in seconds."""
+    result = _ytdlp("--print", "duration", "--no-playlist", "--skip-download", url)
+    if result.returncode == 0:
+        try:
+            return float(result.stdout.strip())
+        except ValueError:
+            pass
+
+    # Fallback: scrape from YouTube page
+    video_id = extract_video_id(url)
+    return _get_duration_from_page(video_id)
+
+
+def _get_duration_from_page(video_id: str) -> float:
+    """Scrape video duration from YouTube page."""
+    page_url = f"https://www.youtube.com/watch?v={video_id}"
+    req = urllib.request.Request(page_url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        match = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', html)
+        if match:
+            return float(match.group(1))
+    except Exception:
+        pass
+    raise RuntimeError("Could not determine video duration")
 
 
 def get_heatmap_data(url: str) -> list[dict] | None:
     """
     Extract the most-replayed heatmap data from a YouTube video.
-    Returns a list of {start_time, end_time, value} dicts, or None if unavailable.
+    Tries yt-dlp first, falls back to direct page scraping.
     """
+    # Try yt-dlp
     result = _ytdlp(
         "--skip-download",
         "--print", "%(heatmap)j",
@@ -95,21 +120,54 @@ def get_heatmap_data(url: str) -> list[dict] | None:
         url,
     )
 
-    if result.returncode != 0:
-        return None
+    if result.returncode == 0:
+        raw = result.stdout.strip()
+        if raw and raw not in ("NA", "null", "None"):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-    raw = result.stdout.strip()
-    if not raw or raw in ("NA", "null", "None"):
-        return None
+    # Fallback: scrape from page
+    return _scrape_heatmap(url)
 
+
+def _scrape_heatmap(url: str) -> list[dict] | None:
+    """Scrape heatmap data directly from YouTube page HTML."""
+    video_id = extract_video_id(url)
+    page_url = f"https://www.youtube.com/watch?v={video_id}"
+    req = urllib.request.Request(page_url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
     try:
-        data = json.loads(raw)
-        if isinstance(data, list) and len(data) > 0:
-            return data
-    except (json.JSONDecodeError, TypeError):
-        pass
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
 
-    return None
+        match = re.search(r'"heatMarkers"\s*:\s*(\[.*?\])\s*[,}]', html)
+        if not match:
+            match = re.search(r'heatMarkers.*?(\[\{.*?"startMillis".*?\}\])', html)
+        if not match:
+            return None
+
+        markers = json.loads(match.group(1))
+        heatmap = []
+        for m in markers:
+            ms = m.get("heatMarkerRenderer", m)
+            start_ms = int(ms.get("timeRangeStartMillis", ms.get("startMillis", 0)))
+            duration_ms = int(ms.get("markerDurationMillis", ms.get("durationMillis", 0)))
+            intensity = float(ms.get("heatMarkerIntensityScoreNormalized",
+                                     ms.get("intensityScoreNormalized", 0)))
+            heatmap.append({
+                "start_time": start_ms / 1000.0,
+                "end_time": (start_ms + duration_ms) / 1000.0,
+                "value": intensity,
+            })
+        return heatmap if len(heatmap) > 0 else None
+    except Exception:
+        return None
 
 
 def download_gameplay(gameplay_key: str, gameplay_options: dict) -> Path:

@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install ffmpeg and nodejs
+# Install ffmpeg and nodejs (yt-dlp needs node for JS challenges)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg curl && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -10,11 +10,11 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir yt-dlp-get-pot yt-dlp-get-pot-rustypipe
 
 COPY . .
 
-# Create directories
 RUN mkdir -p downloads gameplay output temp
 
 EXPOSE 5555
