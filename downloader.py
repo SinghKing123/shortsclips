@@ -6,11 +6,14 @@ import sys
 import re
 import shutil
 from pathlib import Path
-from config import DOWNLOADS_DIR, GAMEPLAY_DIR
+from config import DOWNLOADS_DIR, GAMEPLAY_DIR, BASE_DIR
 
 # Resolve tool paths once at import
 _FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 _FFPROBE = shutil.which("ffprobe") or "ffprobe"
+
+# Cookie file for YouTube authentication (needed on cloud servers)
+COOKIES_FILE = BASE_DIR / "cookies.txt"
 
 
 def _ytdlp(*args: str) -> subprocess.CompletedProcess:
@@ -19,8 +22,11 @@ def _ytdlp(*args: str) -> subprocess.CompletedProcess:
         sys.executable, "-m", "yt_dlp",
         "--js-runtimes", "node",
         "--remote-components", "ejs:github",
-        *args,
     ]
+    # Use cookies if available
+    if COOKIES_FILE.exists():
+        cmd += ["--cookies", str(COOKIES_FILE)]
+    cmd += list(args)
     return subprocess.run(cmd, capture_output=True, text=True)
 
 

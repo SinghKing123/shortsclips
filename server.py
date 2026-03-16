@@ -132,6 +132,24 @@ def icon_512():
     return send_from_directory("static", "icon-512.png")
 
 
+@app.route("/api/cookies", methods=["POST"])
+def upload_cookies():
+    """Upload a cookies.txt file for YouTube authentication."""
+    from downloader import COOKIES_FILE
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    f.save(str(COOKIES_FILE))
+    return jsonify({"ok": True, "message": "Cookies uploaded"})
+
+
+@app.route("/api/cookies", methods=["GET"])
+def cookies_status():
+    """Check if cookies are uploaded."""
+    from downloader import COOKIES_FILE
+    return jsonify({"has_cookies": COOKIES_FILE.exists()})
+
+
 @app.route("/api/gameplay")
 def get_gameplay_options():
     options = [
