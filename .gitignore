@@ -6,3 +6,6 @@ output/
 temp/
 cloudflared.exe
 deploy/
+gh.zip
+gh_cli/
+.claude/
