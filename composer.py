@@ -3,8 +3,32 @@
 import random
 import subprocess
 from pathlib import Path
-from config import OUTPUT_DIR, OUTPUT_WIDTH, OUTPUT_HEIGHT, FPS
+from config import OUTPUT_DIR, TEMP_DIR, OUTPUT_WIDTH, OUTPUT_HEIGHT, FPS
 from downloader import get_local_video_duration, _FFMPEG
+
+
+def _extract_clip(source: Path, start: float, duration: float, output: Path):
+    """
+    Extract a clip from a video file with accurate seeking.
+    Uses -ss after -i for frame-accurate results (works with AV1/VP9/etc).
+    Re-encodes to H.264 so the compose step is fast.
+    """
+    cmd = [
+        _FFMPEG, "-y",
+        "-i", str(source),
+        "-ss", str(start),
+        "-t", str(duration),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "18",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-r", str(FPS),
+        str(output),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise RuntimeError(f"Clip extraction failed:\n{result.stderr[-1000:]}")
 
 
 def compose_short(
@@ -19,7 +43,7 @@ def compose_short(
     Create a vertical short video:
     - Top half: source video clip (start->end), cropped+scaled to fit
     - Bottom half: random segment from gameplay video (same duration)
-    - Audio: source video audio + optional voiceover layered on top at the start
+    - Audio: source video audio
     """
     clip_duration = end - start
     half_height = OUTPUT_HEIGHT // 2  # 960px each
@@ -31,13 +55,14 @@ def compose_short(
 
     output_path = OUTPUT_DIR / f"{output_name}.mp4"
 
-    # --- Build FFmpeg command ---
-    inputs = [
-        "-ss", str(start), "-t", str(clip_duration), "-i", str(source_video),   # [0]
-        "-ss", str(gp_start), "-t", str(clip_duration), "-i", str(gameplay_video),  # [1]
-    ]
+    # Step 1: Extract clips to H.264 first (handles AV1/VP9 seeking issues)
+    src_clip = TEMP_DIR / f"{output_name}_src.mp4"
+    gp_clip = TEMP_DIR / f"{output_name}_gp.mp4"
 
-    # Video filter: scale + crop + stack
+    _extract_clip(source_video, start, clip_duration, src_clip)
+    _extract_clip(gameplay_video, gp_start, clip_duration, gp_clip)
+
+    # Step 2: Stack the two H.264 clips vertically (fast, no decoding issues)
     video_filter = (
         f"[0:v]scale={OUTPUT_WIDTH}:{half_height}:force_original_aspect_ratio=increase,"
         f"crop={OUTPUT_WIDTH}:{half_height},setsar=1[top];"
@@ -46,29 +71,28 @@ def compose_short(
         f"[top][bottom]vstack=inputs=2[v]"
     )
 
-    if voiceover_audio:
-        # Add voiceover as input [2], mix it with source audio [0:a]
-        # Voiceover plays at the start, source audio ducks slightly during voiceover
-        inputs += ["-i", str(voiceover_audio)]
+    filter_complex = video_filter
+    map_args = ["-map", "[v]", "-map", "0:a?"]
 
-        # Audio filter: lower source volume during voiceover, then mix
+    if voiceover_audio:
         audio_filter = (
-            # Source audio: lower volume to 30% for duration of voiceover, then back to 100%
             f"[0:a]volume=0.3:enable='lt(t,5)'[src_duck];"
-            # Voiceover: slight boost
             f"[2:a]volume=1.5,apad=pad_dur=0[vo];"
-            # Mix: voiceover on top of ducked source
             f"[src_duck][vo]amix=inputs=2:duration=first:dropout_transition=2[a]"
         )
         filter_complex = video_filter + ";" + audio_filter
         map_args = ["-map", "[v]", "-map", "[a]"]
-    else:
-        filter_complex = video_filter
-        map_args = ["-map", "[v]", "-map", "0:a?"]
 
     cmd = [
         _FFMPEG, "-y",
-        *inputs,
+        "-i", str(src_clip),
+        "-i", str(gp_clip),
+    ]
+
+    if voiceover_audio:
+        cmd += ["-i", str(voiceover_audio)]
+
+    cmd += [
         "-filter_complex", filter_complex,
         *map_args,
         "-c:v", "libx264",
@@ -81,8 +105,13 @@ def compose_short(
         str(output_path),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+    # Clean up temp clips
+    src_clip.unlink(missing_ok=True)
+    gp_clip.unlink(missing_ok=True)
+
     if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed:\n{result.stderr}")
+        raise RuntimeError(f"FFmpeg failed:\n{result.stderr[-1000:]}")
 
     return output_path
