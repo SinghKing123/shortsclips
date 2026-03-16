@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ShortsClips">
+    <meta name="theme-color" content="#0f0f1a">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <title>ShortsClips</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0f0;
+            min-height: 100vh;
+            padding: 0 0 40px;
+        }
+
+        .header {
+            text-align: center;
+            padding: 30px 20px 10px;
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #7c5cfc, #00c6ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header p {
+            color: #6b6b8a;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8888aa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            margin-top: 20px;
+        }
+
+        input[type="text"], select {
+            width: 100%;
+            padding: 14px 16px;
+            background: #1a1a2e;
+            border: 1px solid #2a2a44;
+            border-radius: 12px;
+            color: #e0e0f0;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+            -webkit-appearance: none;
+        }
+        input[type="text"]:focus, select:focus {
+            border-color: #7c5cfc;
+        }
+        input[type="text"]::placeholder {
+            color: #444466;
+        }
+
+        .clips-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .clips-row input[type="range"] {
+            flex: 1;
+            accent-color: #7c5cfc;
+            height: 6px;
+        }
+        .clips-row .clips-val {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-weight: 700;
+            font-size: 18px;
+            min-width: 44px;
+            text-align: center;
+            color: #7c5cfc;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 28px;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #7c5cfc, #00c6ff);
+            color: #fff;
+        }
+
+        /* Status / Log area */
+        #status-area {
+            display: none;
+            margin-top: 24px;
+        }
+        #status-area.visible { display: block; }
+
+        .progress-bar-bg {
+            background: #1a1a2e;
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #7c5cfc, #00c6ff);
+            border-radius: 10px;
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+
+        .log-box {
+            background: #12121f;
+            border-radius: 12px;
+            padding: 14px;
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            border: 1px solid #1e1e35;
+        }
+        .log-box div { padding: 1px 0; }
+        .log-info { color: #6b6b8a; }
+        .log-success { color: #4ade80; }
+        .log-warn { color: #fbbf24; }
+        .log-error { color: #f87171; }
+        .log-bold { color: #7c5cfc; font-weight: 700; }
+
+        /* Results */
+        #results {
+            display: none;
+            margin-top: 24px;
+        }
+        #results.visible { display: block; }
+
+        .results-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #4ade80;
+        }
+
+        .clip-card {
+            background: #1a1a2e;
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 14px;
+            border: 1px solid #2a2a44;
+        }
+        .clip-card video {
+            width: 100%;
+            max-height: 400px;
+            background: #000;
+        }
+        .clip-card .clip-actions {
+            padding: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        .clip-card .clip-actions a {
+            flex: 1;
+            display: block;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            background: #2a2a44;
+            color: #e0e0f0;
+            transition: background 0.2s;
+        }
+        .clip-card .clip-actions a:active {
+            background: #3a3a5a;
+        }
+        .clip-card .clip-actions a.dl-btn {
+            background: linear-gradient(135deg, #7c5cfc, #00c6ff);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>ShortsClips</h1>
+        <p>Paste a YouTube link, get Shorts</p>
+    </div>
+
+    <div class="container">
+        <label>YouTube URL</label>
+        <input type="text" id="url" placeholder="https://youtube.com/watch?v=..." autocapitalize="off" autocorrect="off">
+
+        <label>Background Footage</label>
+        <select id="gameplay"></select>
+
+        <label>Number of Clips</label>
+        <div class="clips-row">
+            <input type="range" id="clips" min="1" max="10" value="5">
+            <div class="clips-val" id="clips-val">5</div>
+        </div>
+
+        <button class="btn btn-primary" id="generate-btn" onclick="generate()">Generate Shorts</button>
+
+        <div id="status-area">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-fill"></div>
+            </div>
+            <div class="log-box" id="log-box"></div>
+        </div>
+
+        <div id="results">
+            <div class="results-title">Your Shorts</div>
+            <div id="clips-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // Load gameplay options
+        fetch('/api/gameplay')
+            .then(r => r.json())
+            .then(options => {
+                const sel = document.getElementById('gameplay');
+                options.forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = o.key;
+                    opt.textContent = o.name;
+                    sel.appendChild(opt);
+                });
+            });
+
+        // Clips slider
+        const clipsSlider = document.getElementById('clips');
+        const clipsVal = document.getElementById('clips-val');
+        clipsSlider.addEventListener('input', () => { clipsVal.textContent = clipsSlider.value; });
+
+        let pollTimer = null;
+        let logSince = 0;
+
+        function generate() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) { alert('Paste a YouTube URL first'); return; }
+
+            const btn = document.getElementById('generate-btn');
+            btn.disabled = true;
+            btn.textContent = 'Working...';
+
+            // Reset UI
+            document.getElementById('status-area').classList.add('visible');
+            document.getElementById('results').classList.remove('visible');
+            document.getElementById('log-box').innerHTML = '';
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('clips-list').innerHTML = '';
+            logSince = 0;
+
+            fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: url,
+                    gameplay: document.getElementById('gameplay').value,
+                    clips: parseInt(clipsSlider.value),
+                }),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    addLog(data.error, 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Shorts';
+                    return;
+                }
+                pollStatus(data.job_id);
+            })
+            .catch(err => {
+                addLog('Network error: ' + err, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Generate Shorts';
+            });
+        }
+
+        function pollStatus(jobId) {
+            if (pollTimer) clearInterval(pollTimer);
+
+            pollTimer = setInterval(() => {
+                fetch(`/api/status/${jobId}?since=${logSince}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        // Add new logs
+                        data.logs.forEach(l => addLog(l.message, l.level));
+                        logSince = data.log_count;
+
+                        // Update progress bar
+                        if (data.total > 0) {
+                            const pct = (data.progress / data.total) * 100;
+                            document.getElementById('progress-fill').style.width = pct + '%';
+                        }
+
+                        // Check if done
+                        if (data.status === 'done' || data.status === 'error') {
+                            clearInterval(pollTimer);
+                            const btn = document.getElementById('generate-btn');
+                            btn.disabled = false;
+                            btn.textContent = 'Generate Shorts';
+
+                            if (data.status === 'done') {
+                                document.getElementById('progress-fill').style.width = '100%';
+                                showResults(data.clips);
+                            }
+                        }
+                    })
+                    .catch(() => {});
+            }, 1000);
+        }
+
+        function addLog(message, level) {
+            const box = document.getElementById('log-box');
+            const div = document.createElement('div');
+            div.className = 'log-' + (level || 'info');
+            div.textContent = message;
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function showResults(clips) {
+            const container = document.getElementById('clips-list');
+            document.getElementById('results').classList.add('visible');
+
+            clips.forEach((filename, i) => {
+                const card = document.createElement('div');
+                card.className = 'clip-card';
+                card.innerHTML = `
+                    <video controls playsinline preload="metadata" src="/api/stream/${filename}"></video>
+                    <div class="clip-actions">
+                        <a href="/api/stream/${filename}" target="_blank">Preview</a>
+                        <a href="/api/download/${filename}" class="dl-btn">Download</a>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            // Scroll to results
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+        }
+        // Register PWA service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
+    </script>
+</body>
+</html>
